@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Attendance & Payroll System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h2 { margin-bottom: 5px; color: #111; font-size: 20px; text-align: center; }
+        p.subtitle { color: #555; font-size: 12px; margin-bottom: 15px; text-align: center; }
+        
+        /* Views */
+        .view { display: none; }
+        .view.active { display: block; }
+
+        /* Camera Scanner Screen */
+        .cam-box {
+            width: 100%;
+            height: 220px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .scan-btn {
+            background: #0d9488;
+            color: white;
+            border: none;
+            padding: 12px;
+            width: 100%;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .scan-btn:hover { background: #0f766e; }
+
+        /* Admin Link */
+        .admin-link-btn {
+            background: none;
+            border: none;
+            color: #0d9488;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+            display: block;
+            width: 100%;
+            text-align: center;
+        }
+
+        /* Tables & Lists */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th { background-color: #f2f2f2; }
+
+        .back-btn {
+            background: #64748b;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        
+        .input-field {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        
+        .alert-msg {
+            color: red;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>RestoBiometrix</h2>
+    <p class="subtitle">Face Recognition Attendance & Payroll Management</p>
+
+    <!-- VIEW 1: EMPLOYEE SCANNER SCREEN -->
+    <div id="scannerView" class="view active">
+        <div class="cam-box">
+            <video id="videoFeed" autoplay playsinline></video>
+        </div>
+        <button class="scan-btn" onclick="startFaceScan()">📸 Start Face Scan (Time In/Out)</button>
+        <button class="admin-link-btn" onclick="showLoginView()">🔒 Admin Portal Access</button>
+    </div>
+
+    <!-- VIEW 2: ADMIN PASSWORD LOGIN -->
+    <div id="loginView" class="view">
+        <button class="back-btn" onclick="showScannerView()">← Bumalik sa Scanner</button>
+        <h3>Admin Login</h3>
+        <p class="subtitle">Ilagay ang PIN para matingnan ang data at payroll.</p>
+        <div id="loginError" class="alert-msg"></div>
+        <input type="password" id="adminPinInput" class="input-field" placeholder="Ilagay ang 4-digit PIN (Default: 1234)">
+        <button class="scan-btn" onclick="verifyAdminPin()">I-verify ang PIN</button>
+    </div>
+
+    <!-- VIEW 3: ADMIN DASHBOARD (RECORDS & PAYROLL) -->
+    <div id="adminDashboardView" class="view">
+        <button class="back-btn" onclick="showScannerView()">← Logout / Balik Scanner</button>
+        <h3>Admin Dashboard</h3>
+        <p class="subtitle">Listahan ng Attendance at Payroll ng mga Empleyado</p>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="font-size: 13px; font-weight: bold;">Palitan ang Admin PIN:</label>
+            <input type="password" id="newPinInput" class="input-field" placeholder="Bagong PIN" style="margin-top: 5px;">
+            <button class="scan-btn" style="background: #3b82f6; padding: 8px;" onclick="changeAdminPin()">I-save ang Bagong PIN</button>
+        </div>
+
+        <h4>Mga Records Ngayon:</h4>
+        <div style="overflow-x: auto;">
+            <table id="recordsTable">
+                <tr>
+                    <th>Pangalan</th>
+                    <th>Time In</th>
+                    <th>Time Out</th>
+                    <th>Total Pay (₱)</th>
+                </tr>
+            </table>
+        </div>
+        <button class="scan-btn" style="background: #ef4444; margin-top: 15px; padding: 8px;" onclick="clearRecords()">I-reset ang Database</button>
+    </div>
+
+</div>
+
+<script>
+    // I-on ang camera pagka-load
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+        .then(stream => { document.getElementById('videoFeed').srcObject = stream; })
+        .catch(err => { console.log("Camera error:", err); });
+
+    // Database initialization (Default PIN = '1234')
+    if (!localStorage.getItem('admin_pin')) {
+        localStorage.setItem('admin_pin', '1234');
+    }
+    let attendanceRecords = JSON.parse(localStorage.getItem('restaurant_records')) || {};
+
+    function showScannerView() {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('scannerView').classList.add('active');
+        document.getElementById('adminPinInput').value = '';
+        document.getElementById('loginError').innerText = '';
+    }
+
+    function showLoginView() {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById('loginView').classList.add('active');
+    }
+
+    function verifyAdminPin() {
+        let enteredPin = document.getElementById('adminPinInput').value;
+        let savedPin = localStorage.getItem('admin_pin');
+
+        if (enteredPin === savedPin) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('adminDashboardView').classList.add('active');
+            loadAdminTable();
+        } else {
+            document.getElementById('loginError').innerText = "Mali ang PIN! Subukan muli.";
+        }
+    }
+
+    function changeAdminPin() {
+        let newPin = document.getElementById('newPinInput').value;
+        if (newPin.length >= 4) {
+            localStorage.setItem('admin_pin', newPin);
+            alert("Tagumpay na napalitan ang Admin PIN!");
+            document.getElementById('newPinInput').value = '';
+        } else {
+            alert("Dapat hindi bababa sa 4 characters ang PIN.");
+        }
+    }
+
+    function startFaceScan() {
+        // Simulation ng Face Recognition na pipili o kikilala ng staff
+        let employees = ["Juan Dela Cruz (Kitchen)", "Maria Santos (Cashier)", "Pedro Penduko (Server)"];
+        let randomEmployee = employees[Math.floor(Math.random() * employees.length)];
+        
+        let now = new Date();
+        let timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        let dateString = now.toLocaleDateString();
+
+        if (!attendanceRecords[randomEmployee]) {
+            attendanceRecords[randomEmployee] = { timeIn: timeString, timeOut: "--", pay: 0 };
+            alert(`✅ Nakilala: ${randomEmployee}\nNag-Time In sa oras na ${timeString}`);
+        } else if (attendanceRecords[randomEmployee].timeOut === "--") {
+            attendanceRecords[randomEmployee].timeOut = timeString;
+            // Kunwari 8 hours * 75 pesos = 600 pesos default pay computation
+            attendanceRecords[randomEmployee].pay = 600.00;
+            alert(`✅ Nakilala: ${randomEmployee}\nNag-Time Out sa oras na ${timeString}\nPayroll computed: ₱600.00`);
+        } else {
+            alert(`⚠️ Tapos na ang shift ni ${randomEmployee} ngayong araw.`);
+        }
+
+        localStorage.setItem('restaurant_records', JSON.stringify(attendanceRecords));
+    }
+
+    function loadAdminTable() {
+        let table = document.getElementById('recordsTable');
+        // Linisin ang table maliban sa header
+        table.innerHTML = `<tr><th>Pangalan</th><th>Time In</th><th>Time Out</th><th>Total Pay (₱)</th></tr>`;
+        
+        let records = JSON.parse(localStorage.getItem('restaurant_records')) || {};
+        for (let name in records) {
+            let row = table.insertRow();
+            row.insertCell(0).innerText = name;
+            row.insertCell(1).innerText = records[name].timeIn;
+            row.insertCell(2).innerText = records[name].timeOut;
+            row.insertCell(3).innerText = "₱" + records[name].pay.toFixed(2);
+        }
+    }
+
+    function clearRecords() {
+        if (confirm("Sigurado ka bang gusto mong burahin ang lahat ng records?")) {
+            localStorage.removeItem('restaurant_records');
+            attendanceRecords = {};
+            loadAdminTable();
+        }
+    }
+</script>
+
+</body>
+</html>
